@@ -72,7 +72,7 @@ def wait_for_hid_button(input_device_path: str) -> str:
         f"\nListening on {input_device_path}. "
         "Press remote button to capture (Ctrl+C to quit)."
     )
-    with dev:
+    try:
         for event in dev.read_loop():
             if event.type != ecodes.EV_KEY:
                 continue
@@ -83,6 +83,8 @@ def wait_for_hid_button(input_device_path: str) -> str:
                 key_name = key_name[0]
             print(f"Detected key: {key_name}")
             return str(key_name)
+    finally:
+        dev.close()
 
 
 def wait_for_trigger(input_device_path: Optional[str]) -> str:
