@@ -49,6 +49,7 @@ Edit `.env` and set:
 - `OPENAI_API_KEY`
 - optionally `OPENAI_MODEL` and `ARPI_PROMPT`
 - optionally `ARPI_INPUT_DEVICE` (for Bluetooth HID button mode), e.g. `/dev/input/event3`
+- optionally `ARPI_ROTATE_180=1` to rotate camera image 180° (`0` to disable)
 
 Find the correct input device:
 

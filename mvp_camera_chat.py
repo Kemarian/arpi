@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 
-def load_config() -> tuple[str, str, str, Path, Optional[str]]:
+def load_config() -> tuple[str, str, str, Path, Optional[str], bool]:
     load_dotenv(Path(__file__).parent / ".env")
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -29,8 +29,14 @@ def load_config() -> tuple[str, str, str, Path, Optional[str]]:
     image_dir.mkdir(parents=True, exist_ok=True)
 
     input_device = os.getenv("ARPI_INPUT_DEVICE", "").strip() or None
+    rotate_180 = os.getenv("ARPI_ROTATE_180", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
-    return api_key, model, prompt, image_dir, input_device
+    return api_key, model, prompt, image_dir, input_device, rotate_180
 
 
 def wait_for_keypress() -> str:
@@ -94,9 +100,10 @@ def wait_for_trigger(input_device_path: Optional[str]) -> str:
 
 
 class CameraSession:
-    def __init__(self) -> None:
+    def __init__(self, rotate_180: bool = False) -> None:
         self.backend: Optional[str] = None
         self.cam = None
+        self.rotate_180 = rotate_180
         self._init_camera()
 
     def _init_camera(self) -> None:
@@ -106,7 +113,16 @@ class CameraSession:
             from picamera2 import Picamera2
 
             cam = Picamera2()
-            config = cam.create_still_configuration(main={"size": (1920, 1080)})
+            if self.rotate_180:
+                from libcamera import Transform
+
+                transform = Transform(hflip=1, vflip=1)
+                config = cam.create_still_configuration(
+                    main={"size": (1920, 1080)},
+                    transform=transform,
+                )
+            else:
+                config = cam.create_still_configuration(main={"size": (1920, 1080)})
             cam.configure(config)
             cam.start()
             # Warm up once at startup so button-trigger capture is fast.
@@ -121,6 +137,8 @@ class CameraSession:
             from picamera import PiCamera
 
             cam = PiCamera()
+            if self.rotate_180:
+                cam.rotation = 180
             time.sleep(1.5)
             self.cam = cam
             self.backend = "picamera"
@@ -182,7 +200,7 @@ def analyze_image(client: OpenAI, model: str, prompt: str, image_path: Path) -> 
 
 def main() -> int:
     try:
-        api_key, model, prompt, image_dir, input_device = load_config()
+        api_key, model, prompt, image_dir, input_device, rotate_180 = load_config()
     except Exception as exc:  # noqa: BLE001
         print(f"Config error: {exc}")
         return 1
@@ -193,10 +211,11 @@ def main() -> int:
     print(f"Trigger mode: {'hid' if input_device else 'terminal'}")
     if input_device:
         print(f"Input device: {input_device}")
+    print(f"Rotate 180: {rotate_180}")
 
     print("Initializing camera...")
     try:
-        camera = CameraSession()
+        camera = CameraSession(rotate_180=rotate_180)
     except Exception as exc:  # noqa: BLE001
         print(f"Camera init error: {exc}")
         return 1
