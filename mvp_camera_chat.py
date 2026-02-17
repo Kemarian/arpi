@@ -93,35 +93,59 @@ def wait_for_trigger(input_device_path: Optional[str]) -> str:
     return wait_for_keypress()
 
 
-def capture_image(output_path: Path) -> None:
-    capture_errors = []
+class CameraSession:
+    def __init__(self) -> None:
+        self.backend: Optional[str] = None
+        self.cam = None
+        self._init_camera()
 
-    try:
-        from picamera2 import Picamera2
+    def _init_camera(self) -> None:
+        init_errors = []
 
-        cam = Picamera2()
-        config = cam.create_still_configuration(main={"size": (1920, 1080)})
-        cam.configure(config)
-        cam.start()
-        time.sleep(1.0)
-        cam.capture_file(str(output_path))
-        cam.close()
-        return
-    except Exception as exc:  # noqa: BLE001
-        capture_errors.append(f"picamera2 failed: {exc}")
+        try:
+            from picamera2 import Picamera2
 
-    try:
-        from picamera import PiCamera
+            cam = Picamera2()
+            config = cam.create_still_configuration(main={"size": (1920, 1080)})
+            cam.configure(config)
+            cam.start()
+            # Warm up once at startup so button-trigger capture is fast.
+            time.sleep(0.7)
+            self.cam = cam
+            self.backend = "picamera2"
+            return
+        except Exception as exc:  # noqa: BLE001
+            init_errors.append(f"picamera2 init failed: {exc}")
 
-        cam = PiCamera()
-        time.sleep(2.0)
-        cam.capture(str(output_path))
-        cam.close()
-        return
-    except Exception as exc:  # noqa: BLE001
-        capture_errors.append(f"picamera failed: {exc}")
+        try:
+            from picamera import PiCamera
 
-    raise RuntimeError(" | ".join(capture_errors))
+            cam = PiCamera()
+            time.sleep(1.5)
+            self.cam = cam
+            self.backend = "picamera"
+            return
+        except Exception as exc:  # noqa: BLE001
+            init_errors.append(f"picamera init failed: {exc}")
+
+        raise RuntimeError(" | ".join(init_errors))
+
+    def capture(self, output_path: Path) -> None:
+        if self.backend == "picamera2":
+            self.cam.capture_file(str(output_path))
+            return
+        if self.backend == "picamera":
+            self.cam.capture(str(output_path))
+            return
+        raise RuntimeError("Camera backend is not initialized.")
+
+    def close(self) -> None:
+        if self.cam is None:
+            return
+        try:
+            self.cam.close()
+        finally:
+            self.cam = None
 
 
 def to_data_url(image_path: Path) -> str:
@@ -170,25 +194,36 @@ def main() -> int:
     if input_device:
         print(f"Input device: {input_device}")
 
-    while True:
-        key = wait_for_trigger(input_device)
-        if key.lower() == "q":
-            print("Exiting.")
-            return 0
+    print("Initializing camera...")
+    try:
+        camera = CameraSession()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Camera init error: {exc}")
+        return 1
+    print(f"Camera ready (backend: {camera.backend}).")
 
-        filename = datetime.now().strftime("capture_%Y%m%d_%H%M%S.jpg")
-        image_path = image_dir / filename
-        print(f"Capturing: {image_path}")
+    try:
+        while True:
+            key = wait_for_trigger(input_device)
+            if key.lower() == "q":
+                print("Exiting.")
+                return 0
 
-        try:
-            capture_image(image_path)
-            print("Captured. Sending to OpenAI...")
-            result = analyze_image(client, model, prompt, image_path)
-            print("\n--- GPT RESULT ---")
-            print(result)
-            print("--- END ---")
-        except Exception as exc:  # noqa: BLE001
-            print(f"Error: {exc}")
+            filename = datetime.now().strftime("capture_%Y%m%d_%H%M%S.jpg")
+            image_path = image_dir / filename
+            print(f"Capturing: {image_path}")
+
+            try:
+                camera.capture(image_path)
+                print("Captured. Sending to OpenAI...")
+                result = analyze_image(client, model, prompt, image_path)
+                print("\n--- GPT RESULT ---")
+                print(result)
+                print("--- END ---")
+            except Exception as exc:  # noqa: BLE001
+                print(f"Error: {exc}")
+    finally:
+        camera.close()
 
 
 if __name__ == "__main__":
