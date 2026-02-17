@@ -20,7 +20,7 @@ Install OS-level dependencies first (once):
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pip python3-picamera2 libcamera-apps
+sudo apt install -y python3-venv python3-pip python3-picamera2 python3-evdev libcamera-apps evtest
 ```
 
 Create venv with system package access (`--system-site-packages`):
@@ -48,6 +48,15 @@ pip install -r requirements.txt
 Edit `.env` and set:
 - `OPENAI_API_KEY`
 - optionally `OPENAI_MODEL` and `ARPI_PROMPT`
+- optionally `ARPI_INPUT_DEVICE` (for Bluetooth HID button mode), e.g. `/dev/input/event3`
+
+Find the correct input device:
+
+```bash
+sudo evtest
+```
+
+Press the remote button and identify which `/dev/input/eventX` receives key events.
 
 ## Run
 
@@ -58,7 +67,8 @@ python mvp_camera_chat.py
 ```
 
 Controls:
-- Press any key to capture/analyze.
+- Terminal mode: press any key to capture/analyze.
+- HID mode (`ARPI_INPUT_DEVICE` set): press button on remote to capture/analyze.
 - Press `q` to quit.
 
 ## Notes
@@ -66,3 +76,4 @@ Controls:
 - Terminal must be focused to receive HID key events.
 - For Meta Quest + Bluetooth remote, this MVP assumes the remote produces keyboard events to the terminal session.
 - `picamera2` is expected from apt (`python3-picamera2`) and made visible inside venv via `--system-site-packages`.
+- If opening `/dev/input/eventX` fails with permissions, run with `sudo -E` or grant input-device access to your user.

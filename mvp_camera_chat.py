@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 
-def load_config() -> tuple[str, str, str, Path]:
+def load_config() -> tuple[str, str, str, Path, Optional[str]]:
     load_dotenv(Path(__file__).parent / ".env")
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -28,7 +28,9 @@ def load_config() -> tuple[str, str, str, Path]:
         image_dir = Path(__file__).parent / image_dir
     image_dir.mkdir(parents=True, exist_ok=True)
 
-    return api_key, model, prompt, image_dir
+    input_device = os.getenv("ARPI_INPUT_DEVICE", "").strip() or None
+
+    return api_key, model, prompt, image_dir, input_device
 
 
 def wait_for_keypress() -> str:
@@ -47,6 +49,46 @@ def wait_for_keypress() -> str:
         return sys.stdin.read(1)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def wait_for_hid_button(input_device_path: str) -> str:
+    try:
+        from evdev import InputDevice, ecodes
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"evdev is required for ARPI_INPUT_DEVICE mode: {exc}. "
+            "Install python3-evdev."
+        )
+
+    try:
+        dev = InputDevice(input_device_path)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Cannot open input device '{input_device_path}': {exc}. "
+            "Check ARPI_INPUT_DEVICE and permissions."
+        )
+
+    print(
+        f"\nListening on {input_device_path}. "
+        "Press remote button to capture (Ctrl+C to quit)."
+    )
+    with dev:
+        for event in dev.read_loop():
+            if event.type != ecodes.EV_KEY:
+                continue
+            if event.value != 1:
+                continue
+            key_name = ecodes.KEY.get(event.code, f"KEY_{event.code}")
+            if isinstance(key_name, list):
+                key_name = key_name[0]
+            print(f"Detected key: {key_name}")
+            return str(key_name)
+
+
+def wait_for_trigger(input_device_path: Optional[str]) -> str:
+    if input_device_path:
+        return wait_for_hid_button(input_device_path)
+    return wait_for_keypress()
 
 
 def capture_image(output_path: Path) -> None:
@@ -114,7 +156,7 @@ def analyze_image(client: OpenAI, model: str, prompt: str, image_path: Path) -> 
 
 def main() -> int:
     try:
-        api_key, model, prompt, image_dir = load_config()
+        api_key, model, prompt, image_dir, input_device = load_config()
     except Exception as exc:  # noqa: BLE001
         print(f"Config error: {exc}")
         return 1
@@ -122,9 +164,12 @@ def main() -> int:
     client = OpenAI(api_key=api_key)
     print(f"Model: {model}")
     print(f"Image dir: {image_dir}")
+    print(f"Trigger mode: {'hid' if input_device else 'terminal'}")
+    if input_device:
+        print(f"Input device: {input_device}")
 
     while True:
-        key = wait_for_keypress()
+        key = wait_for_trigger(input_device)
         if key.lower() == "q":
             print("Exiting.")
             return 0
