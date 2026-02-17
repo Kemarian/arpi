@@ -80,15 +80,19 @@ def wait_for_hid_button(input_device_path: str) -> str:
     )
     try:
         for event in dev.read_loop():
-            if event.type != ecodes.EV_KEY:
-                continue
-            if event.value != 1:
-                continue
-            key_name = ecodes.KEY.get(event.code, f"KEY_{event.code}")
-            if isinstance(key_name, list):
-                key_name = key_name[0]
-            print(f"Detected key: {key_name}")
-            return str(key_name)
+            if event.type == ecodes.EV_KEY:
+                if event.value != 1:
+                    continue
+                key_name = ecodes.KEY.get(event.code, f"KEY_{event.code}")
+                if isinstance(key_name, list):
+                    key_name = key_name[0]
+                print(f"Detected key: {key_name}")
+                return str(key_name)
+
+            # Some remotes report consumer button changes as ABS_VOLUME.
+            if event.type == ecodes.EV_ABS and event.code == ecodes.ABS_VOLUME:
+                print(f"Detected ABS_VOLUME: {event.value}")
+                return f"ABS_VOLUME_{event.value}"
     finally:
         dev.close()
 
